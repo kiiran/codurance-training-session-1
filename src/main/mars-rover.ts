@@ -1,13 +1,43 @@
+export class Coordinates {
+  constructor(public readonly x: number, public readonly y: number) {}
+}
+
+export class Obstacle extends Coordinates {
+}
+
+export class GridSize {
+  constructor(public readonly width: number, public readonly height: number) {}
+}
+
 export class Grid {
-  constructor(private readonly x: number, private readonly y: number) {
+  constructor(private gridSize: GridSize, private obstacles: Obstacle[]) {
   }
 
-  getNextXPosition(moveX: number) {
-    return (moveX + this.x) % this.x
+  getNextPosition({ x, y }: Coordinates): Coordinates {
+    const nextPosition = new Coordinates(
+      this.getNextXPosition(x),
+      this.getNextYPosition(y),
+    )
+
+    // if there's an obstacle
+    if (
+      this.obstacles.some(
+        (obstacle) =>
+          obstacle.x === nextPosition.x && obstacle.y === nextPosition.y,
+      )
+    ) {
+      throw new Error('uh oh, obstacle')
+    }
+
+    return nextPosition
   }
 
-  getNextYPosition(moveY: number) {
-    return (moveY + this.y) % this.y
+  private getNextXPosition(moveX: number) {
+    return (moveX + this.gridSize.width) % this.gridSize.width
+  }
+
+  private getNextYPosition(moveY: number) {
+    return (moveY + this.gridSize.height) % this.gridSize.height
   }
 }
 
@@ -32,21 +62,29 @@ const directions = [
 ]
 
 export class MarsRover {
-  private grid = new Grid(10, 10)
+  private x: number
+  private y: number
+  private hasHitObstacle: boolean = false
 
   constructor(
-    private x: number,
-    private y: number,
+    startingPosition: Coordinates,
     private direction: Direction,
+    private grid: Grid,
   ) {
+    this.x = startingPosition.x
+    this.y = startingPosition.y
   }
 
   public getPosition = (): string => {
-    return `${this.x}:${this.y}:${this.direction[0]}`
+    return [this.hasHitObstacle && 'O', this.x, this.y, this.direction[0]]
+      .filter((item) => item !== false)
+      .join(':')
   }
 
   public executeCommand = (commands: string): void => {
     for (const command of commands.split('')) {
+      if (this.hasHitObstacle) return
+
       switch (command) {
         case Command.RIGHT:
         case Command.LEFT:
@@ -63,22 +101,35 @@ export class MarsRover {
   }
 
   private moveForward = () => {
+    const nextPosition = {
+      x: this.x,
+      y: this.y,
+    }
+
     switch (this.direction) {
       case Direction.NORTH:
-        this.y = this.grid.getNextYPosition(this.y + 1)
+        nextPosition.y = this.y + 1
         break
 
       case Direction.EAST:
-        this.x = this.grid.getNextXPosition(this.x + 1)
+        nextPosition.x = this.x + 1
         break
 
       case Direction.SOUTH:
-        this.y = this.grid.getNextYPosition(this.y - 1)
+        nextPosition.y = this.y - 1
         break
 
       case Direction.WEST:
-        this.x = this.grid.getNextXPosition(this.x - 1)
+        nextPosition.x = this.x - 1
         break
+    }
+
+    try {
+      const position = this.grid.getNextPosition(nextPosition)
+      this.x = position.x
+      this.y = position.y
+    } catch (e) {
+      this.hasHitObstacle = true
     }
   }
 
@@ -88,7 +139,7 @@ export class MarsRover {
     this.direction = MarsRover.getNewDirection(currentIndex + offset)
   }
 
-  private static getNewDirection(index: number){
+  private static getNewDirection(index: number) {
     const wrappedIndex = (index + directions.length) % directions.length
 
     return directions[wrappedIndex]
