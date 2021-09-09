@@ -1,12 +1,14 @@
 export class Coordinates {
-  constructor(public readonly x: number, public readonly y: number) {}
+  constructor(public readonly x: number, public readonly y: number) {
+  }
 }
 
 export class Obstacle extends Coordinates {
 }
 
 export class GridSize {
-  constructor(public readonly width: number, public readonly height: number) {}
+  constructor(public readonly width: number, public readonly height: number) {
+  }
 }
 
 export class Grid {
@@ -50,6 +52,7 @@ export enum Direction {
 
 export enum Command {
   MOVE = 'M',
+  UNDO = 'U',
   RIGHT = 'R',
   LEFT = 'L',
 }
@@ -61,29 +64,79 @@ const directions = [
   Direction.WEST,
 ]
 
+export type MarsRoverState = {
+  x: number
+  y: number
+  direction: Direction
+  hasHitObstacle: boolean
+}
+
+export class CommandHistory<T> {
+  private history: T[] = []
+
+  public push(state: T) {
+    this.history.push(state)
+  }
+
+  public pop(): T {
+    if (this.history.length === 0) {
+      throw new Error('No command in history')
+    }
+    return this.history.pop() as T
+  }
+}
+
+
+export class StateMachine<T> {
+  private currentState: T
+  private commandHistory: CommandHistory<T>
+
+  constructor(iniState: T) {
+    this.currentState = iniState
+    this.commandHistory = new CommandHistory<T>();
+  }
+
+  public setState(stateChange: Partial<T>) {
+    this.commandHistory.push(this.currentState)
+    this.currentState = { ...this.currentState, ...stateChange }
+  }
+
+  public getCurrentState(): T {
+    return { ...this.currentState }
+  }
+
+  public revert() {
+    this.currentState = this.commandHistory.pop()
+  }
+}
+
 export class MarsRover {
-  private x: number
-  private y: number
-  private hasHitObstacle: boolean = false
+  private stateMachine: StateMachine<MarsRoverState>;
 
   constructor(
     startingPosition: Coordinates,
-    private direction: Direction,
+    direction: Direction,
     private grid: Grid,
   ) {
-    this.x = startingPosition.x
-    this.y = startingPosition.y
+    this.stateMachine = new StateMachine( {
+      x: startingPosition.x,
+      y: startingPosition.y,
+      direction,
+      hasHitObstacle: false,
+    })
   }
 
   public getPosition = (): string => {
-    return [this.hasHitObstacle && 'O', this.x, this.y, this.direction[0]]
+    const { x, y, direction, hasHitObstacle } = this.stateMachine.getCurrentState();
+    return [hasHitObstacle && 'O', x, y, direction[0]]
       .filter((item) => item !== false)
       .join(':')
   }
 
   public executeCommand = (commands: string): void => {
+    const { hasHitObstacle } = this.stateMachine.getCurrentState();
     for (const command of commands.split('')) {
-      if (this.hasHitObstacle) return
+      if (hasHitObstacle) return
 
       switch (command) {
         case Command.RIGHT:
@@ -94,49 +147,60 @@ export class MarsRover {
         case Command.MOVE:
           this.moveForward()
           break
+
+        case Command.UNDO:
+          this.undoLastCommand()
+          break
         default:
           throw new Error('unexpected input command ' + command)
       }
+      console.log(`Command: ${command}. Position: ${this.getPosition()}`)
     }
   }
 
   private moveForward = () => {
+    const { x, y, direction } = this.stateMachine.getCurrentState();
     const nextPosition = {
-      x: this.x,
-      y: this.y,
+      x: x,
+      y: y,
     }
 
-    switch (this.direction) {
+    switch (direction) {
       case Direction.NORTH:
-        nextPosition.y = this.y + 1
+        nextPosition.y = y + 1
         break
 
       case Direction.EAST:
-        nextPosition.x = this.x + 1
+        nextPosition.x = x + 1
         break
 
       case Direction.SOUTH:
-        nextPosition.y = this.y - 1
+        nextPosition.y = y - 1
         break
 
       case Direction.WEST:
-        nextPosition.x = this.x - 1
+        nextPosition.x = x - 1
         break
     }
 
     try {
       const position = this.grid.getNextPosition(nextPosition)
-      this.x = position.x
-      this.y = position.y
+      this.stateMachine.setState(position)
     } catch (e) {
-      this.hasHitObstacle = true
+      this.stateMachine.setState({ hasHitObstacle: true })
     }
   }
 
   private changeDirection = (command: Command.RIGHT | Command.LEFT) => {
+    const { direction } = this.stateMachine.getCurrentState();
     const offset = command === Command.RIGHT ? 1 : -1
-    const currentIndex = directions.findIndex((d) => d === this.direction)
-    this.direction = MarsRover.getNewDirection(currentIndex + offset)
+    const currentIndex = directions.findIndex((d) => d === direction)
+    const newDirection = MarsRover.getNewDirection(currentIndex + offset)
+    this.stateMachine.setState({ direction: newDirection })
+  }
+
+  private undoLastCommand() {
+    this.stateMachine.revert();
   }
 
   private static getNewDirection(index: number) {

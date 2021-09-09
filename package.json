@@ -7,7 +7,7 @@
   "scripts": {
     "format": "prettier --write src",
     "test": "jest --",
-    "test:watch": "jest --watch --",
+    "test:watch": "jest --watch",
     "test:watch-all": "jest --watchAll"
   },
   "dependencies": {
